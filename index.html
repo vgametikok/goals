@@ -269,7 +269,7 @@ const DEFAULT_STATE = {
     { id:"t7", dirId:"html",   projId:"solit",  title:"Доделать 30% и отправить издателям", prio:2, status:"todo" },
     { id:"t8", dirId:"html",   projId:"kub",    title:"Дождаться модерации Яндекс Игр", prio:1, status:"doing" }
   ],
-  income:[], expensesFixed: FIXED_DEFAULT.map(x=>({...x})),
+  income:[], goals:[], expensesFixed: FIXED_DEFAULT.map(x=>({...x})),
   expensesAdhoc:[], debts:[], adjustments:[]
 };
 const INC_STATUSES = [["idea","идея"],["talks","переговоры"],["invoiced","счёт"],["paid","получено"],["lost","сорвалось"]];
@@ -283,6 +283,7 @@ const SUPA = { url:"https://safjqsofdrxdmvnfgvjf.supabase.co", key:"sb_publishab
 
 let state=null, artifactNS=null, dirty=false, saveTimer=null, supaMode=false, supaKey=null;
 let selWeek=null, dirView={}, debtsHidden = localStorage.getItem("u30_eye")!=="show";
+let taskRange={}, pipeFilter = localStorage.getItem("u30_pipe")||"all";
 
 function esc(s){ return String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
 function fmt(n){ return "$"+Math.round(n).toLocaleString("ru-RU"); }
@@ -297,7 +298,7 @@ const V1_PROJ_MAP = { raul:["yt","raul","Доктор Рауль"], asmr:["yt","
 function migrate(s){
   if (!s) return null;
   if (s.v>=2){
-    for (const k of ["directions","projects","tasks","income","expensesFixed","expensesAdhoc","debts","adjustments"])
+    for (const k of ["directions","projects","tasks","income","goals","expensesFixed","expensesAdhoc","debts","adjustments"])
       if (!Array.isArray(s[k])) s[k]=[];
     if (!s.goal.moveNeed){ s.goal.moveNeed=20000; s.goal.lifeNeed=(s.goal.target||30000)-20000; }
     s.projects.forEach(p=>{ if(!p.prio) p.prio=2; });
@@ -370,6 +371,37 @@ function weighted(dirId){
     .reduce((s,i)=>s+i.amount*(i.prob||0)/100,0);
 }
 function daysLeft(){ return Math.max(0,Math.ceil((new Date(state.goal.deadline+"T23:59:59")-new Date())/864e5)); }
+/* денежные цели: main = Уругвай, остальные в state.goals */
+function goalIdOf(i){ return i.goalId||"main"; }
+function paidTotalGoal(gid){ return state.income.filter(i=>i.status==="paid"&&goalIdOf(i)===gid).reduce((s,i)=>s+ +i.amount,0); }
+function weightedGoal(gid){
+  return state.income.filter(i=>["idea","talks","invoiced"].includes(i.status)&&goalIdOf(i)===gid)
+    .reduce((s,i)=>s+i.amount*(i.prob||0)/100,0);
+}
+function goalName(gid){ if(gid==="main") return "Уругвай"; const g=state.goals.find(g=>g.id===gid); return g?g.name:"—"; }
+/* фильтр задач по времени (per-scope) */
+function getRange(scope){
+  if(!taskRange[scope]){
+    try{ taskRange[scope]=JSON.parse(localStorage.getItem("u30_range_"+scope))||{mode:"all"}; }
+    catch(e){ taskRange[scope]={mode:"all"}; }
+  }
+  return taskRange[scope];
+}
+function saveRange(scope){ try{ localStorage.setItem("u30_range_"+scope, JSON.stringify(taskRange[scope])); }catch(e){} }
+function rangeBounds(r){
+  const now=new Date();
+  if(r.mode==="week"){ const m=mondayOf(now); return [m,addD(m,7)]; }
+  if(r.mode==="month") return [new Date(now.getFullYear(),now.getMonth(),1), new Date(now.getFullYear(),now.getMonth()+1,1)];
+  if(r.mode==="q") return [new Date(now.getFullYear(),now.getMonth(),1), new Date(now.getFullYear(),now.getMonth()+3,1)];
+  if(r.mode==="year") return [new Date(now.getFullYear(),now.getMonth(),1), new Date(now.getFullYear()+1,now.getMonth(),1)];
+  if(r.mode==="custom"&&r.from&&r.to) return [new Date(r.from+"T00:00"), addD(new Date(r.to+"T00:00"),1)];
+  return null;
+}
+function taskInRange(t,b){
+  const s=t.start?new Date(t.start+"T12:00"):null, d=t.due?new Date(t.due+"T12:00"):null;
+  if(!s&&!d) return false;
+  return (s||d)<b[1] && (d||s)>=b[0];
+}
 function fixedMonthly(){
   const f = state.expensesFixed.reduce((s,e)=>s+ +e.amount,0);
   const b = state.debts.filter(d=>d.type==="bank").reduce((s,d)=>s+ +(d.monthly||0),0);
@@ -425,13 +457,13 @@ function render(){
 
 /* ---------- main page ---------- */
 function vMain(){
-  const paid=paidTotal();
+  const paid=paidTotalGoal("main");
   const life=state.goal.lifeNeed||10000, move=state.goal.moveNeed||20000, tgt=life+move;
   const lifeDone=Math.min(paid,life), moveDone=Math.max(0,Math.min(paid-life,move));
   const pct=Math.min(100,paid/tgt*100);
   const dl=daysLeft(), pace=Math.max(0,tgt-paid)/Math.max(1,dl/7);
   const [wa,wb]=curWeek(), [ma,mb]=curMonth();
-  const wk=paidIn(wa,wb), mo=paidIn(ma,mb), wgt=weighted();
+  const wk=paidIn(wa,wb), mo=paidIn(ma,mb), wgt=weightedGoal("main"), wgtAll=weighted();
   const fx=fixedMonthly(), adhocMo=adhocIn(ma,mb);
   const mName=MONTHS_R[new Date().getMonth()];
 
@@ -461,19 +493,43 @@ function vMain(){
       </div>
     </div>
   </section>
+  <section class="panel">
+    <div class="phead"><h2>Денежные цели</h2></div>
+    ${state.goals.map(g=>{
+      const p=paidTotalGoal(g.id), w=weightedGoal(g.id), gpct=Math.min(100,g.target?p/g.target*100:0);
+      return `<div class="debt" data-id="${g.id}" style="background:var(--panel)">
+        <div class="head"><input class="inline" data-f="name" value="${esc(g.name)}" style="max-width:280px;font-weight:600">
+          <span class="num">${fmt(p)} / <input class="amt num" data-f="target" type="number" value="${+g.target}">
+          <input class="inline num" data-f="deadline" type="date" value="${g.deadline||""}" style="width:130px" title="Дедлайн"></span>
+          <button class="x" data-del="goals">×</button></div>
+        <div class="bar" style="height:12px"><i class="fc" style="width:${Math.min(100,g.target?(p+w)/g.target*100:0)}%"></i><i style="width:${gpct}%"></i></div>
+        <div class="muted num" style="font-size:13px">Осталось ${fmt(Math.max(0,g.target-p))}${w?" · в пайплайне "+fmt(w):""}</div>
+      </div>`;}).join("")||'<p class="muted">Дополнительных целей нет — Уругвай главная. Добавь, например, «Новый ПК $1 500».</p>'}
+    <form class="addrow" id="goalForm">
+      <input name="title" placeholder="Название цели" required>
+      <input name="amount" class="amt" type="number" min="1" step="1" placeholder="$" required>
+      <input name="due" type="date" title="Дедлайн (необязательно)">
+      <button class="primary" type="submit">Добавить цель</button>
+    </form>
+  </section>
   <section class="tiles">
     ${tile("Эта неделя · "+fmtD(wa)+"–"+fmtD(addD(wb,-1)), fmt(wk), "минимум "+fmt(state.goal.weeklyMin), wk/state.goal.weeklyMin, wk>=state.goal.weeklyMin?"good":"bad")}
     ${tile("Этот месяц · "+mName, fmt(mo), "минимум "+fmt(fx)+" (обяз. расходы)", mo/Math.max(1,fx), mo>=fx?"good":"")}
-    ${tile("Прогноз из пайплайна", fmt(wgt), "открытые сделки × их вероятность", Math.min(1,wgt/Math.max(1,tgt-paid)), "")}
+    ${tile("Прогноз из пайплайна", fmt(wgtAll), "открытые сделки × их вероятность (все цели)", Math.min(1,wgtAll/Math.max(1,tgt-paid)), "")}
     ${tile("Расходы · "+mName, fmt(fx+adhocMo), "обязательные "+fmt(fx)+" + разовые "+fmt(adhocMo), 1, "")}
   </section>
 
   <section class="panel">
-    <h2>Пайплайн доходов</h2>
+    <div class="phead"><h2>Пайплайн доходов</h2>
+      ${state.goals.length?'<div class="viewtog" style="flex-wrap:wrap">'+
+        [["all","Все цели"],["main","Уругвай"],...state.goals.map(g=>[g.id,g.name])]
+          .map(([v,l])=>'<button class="pf'+(pipeFilter===v?" on":"")+'" data-pf="'+v+'">'+esc(l)+'</button>').join("")+'</div>':''}
+    </div>
     <div class="tscroll"><table id="incTable">${tblIncome()}</table></div>
     <form class="addrow" id="incForm">
       <input name="title" placeholder="Что за доход (клиент, сделка…)" required>
       ${targetSel("","","").replace('class="slim "','class="slim" name="target"')}
+      ${state.goals.length?goalSel("",pipeFilter!=="all"?pipeFilter:"main").replace('class="slim "','class="slim" name="goal" title="Цель"'):""}
       <input name="amount" class="amt" type="number" min="0" step="1" placeholder="$" required>
       <input name="prob" class="prob" type="number" min="0" max="100" step="5" value="50" title="Вероятность, %">
       <select name="status" class="slim">${INC_STATUSES.filter(s=>s[0]!=="lost").map(([v,l])=>'<option value="'+v+'"'+(v==="paid"?" selected":"")+'>'+l+'</option>').join("")}</select>
@@ -541,17 +597,24 @@ function cardDir(d){
     <div class="inc num">неделя ${fmt(paidIn(wa,wb,d.id))} · месяц ${fmt(paidIn(ma,mb,d.id))} · всего ${fmt(paidTotal(d.id))}</div>
   </div>`;
 }
+function goalSel(cls,cur){
+  const opts=[["main","Уругвай"],...state.goals.map(g=>[g.id,g.name])];
+  return '<select class="slim '+cls+'">'+opts.map(([v,l])=>'<option value="'+v+'"'+(v===cur?" selected":"")+'>'+esc(l)+'</option>').join("")+'</select>';
+}
 function tblIncome(){
-  const rows=state.income.map(i=>`<tr data-id="${i.id}">
+  const hasGoals=state.goals.length>0;
+  const list=state.income.filter(i=>pipeFilter==="all"||!hasGoals||goalIdOf(i)===pipeFilter);
+  const rows=list.map(i=>`<tr data-id="${i.id}">
     <td style="min-width:150px"><input class="inline" data-f="title" value="${esc(i.title)}"></td>
     <td>${targetSel("inc-target",i.dirId,i.projId)}</td>
+    ${hasGoals?'<td>'+goalSel("inc-goal",goalIdOf(i))+'</td>':''}
     <td class="r"><input class="amt num" data-f="amount" type="number" value="${+i.amount}"></td>
     <td class="r"><input class="prob num" data-f="prob" type="number" min="0" max="100" value="${i.prob||0}" ${i.status==="paid"?"disabled":""}></td>
     <td>${sel("inc-st",i.status,INC_STATUSES)}</td>
     <td><input class="inline num" style="width:130px" data-f="date" type="date" value="${i.date||""}"></td>
     <td><button class="x" data-del="income" title="Удалить">×</button></td></tr>`).join("");
-  return '<thead><tr><th>Доход</th><th>Направление / проект</th><th class="r">Сумма</th><th class="r">Вер.%</th><th>Статус</th><th>Дата</th><th></th></tr></thead><tbody>'+
-    (rows||'<tr><td colspan="7" class="muted">Пока пусто — добавь первую потенциальную сделку ниже.</td></tr>')+'</tbody>';
+  return '<thead><tr><th>Доход</th><th>Направление / проект</th>'+(hasGoals?'<th>Цель</th>':'')+'<th class="r">Сумма</th><th class="r">Вер.%</th><th>Статус</th><th>Дата</th><th></th></tr></thead><tbody>'+
+    (rows||'<tr><td colspan="'+(hasGoals?8:7)+'" class="muted">'+(pipeFilter!=="all"&&hasGoals?'По этой цели записей нет.':'Пока пусто — добавь первую потенциальную сделку ниже.')+'</td></tr>')+'</tbody>';
 }
 function tblFixed(){
   const rows=state.expensesFixed.map(e=>`<tr data-id="${e.id}">
@@ -738,7 +801,8 @@ function vDir(d){
   ${vTasksSection(d.id)}`;
 }
 function tasksSorted(dirId){
-  return state.tasks.filter(t=>!dirId||t.dirId===dirId)
+  const bounds=rangeBounds(getRange(dirId||"all"));
+  return state.tasks.filter(t=>(!dirId||t.dirId===dirId) && (!bounds||taskInRange(t,bounds)))
     .sort((a,b)=>((b.urgent?1:0)-(a.urgent?1:0)) || (b.prio-a.prio) || String(a.due||"9999").localeCompare(String(b.due||"9999")));
 }
 function taskTag(t, global){
@@ -756,14 +820,27 @@ function vTasksSection(dirId){
   const projOpts = dirId
     ? '<select name="proj" class="slim"><option value="">без проекта</option>'+state.projects.filter(p=>p.dirId===dirId).map(p=>'<option value="'+p.id+'">'+esc(p.name)+'</option>').join("")+'</select>'
     : targetSel("","","").replace('class="slim "','class="slim" name="target"');
+  const r=getRange(scope), bounds=rangeBounds(r);
+  const hiddenUndated = bounds ? state.tasks.filter(t=>(!dirId||t.dirId===dirId)&&!t.start&&!t.due).length : 0;
+  const rangeUI =
+    '<select class="slim task-range" data-scope="'+scope+'">'+
+      [["all","Всё время"],["week","Эта неделя"],["month","Месяц"],["q","3 месяца"],["year","Год"],["custom","Вручную"]]
+        .map(([v,l])=>'<option value="'+v+'"'+(r.mode===v?" selected":"")+'>'+l+'</option>').join("")+
+    '</select>'+
+    (r.mode==="custom"
+      ? ' <input type="date" class="range-from num" data-scope="'+scope+'" value="'+(r.from||"")+'" title="С">'+
+        '<input type="date" class="range-to num" data-scope="'+scope+'" value="'+(r.to||"")+'" title="По">'
+      : "");
   return `<section class="panel">
     <div class="phead"><h2>${dirId?"Задачи":"Все задачи"}</h2>
-      <div class="viewtog">
+      <div class="viewtog" style="flex-wrap:wrap">
+        ${rangeUI}
         <button data-view="list" data-scope="${scope}" class="${view==="list"?"on":""}">Список</button>
         <button data-view="kanban" data-scope="${scope}" class="${view==="kanban"?"on":""}">Канбан</button>
         <button data-view="gantt" data-scope="${scope}" class="${view==="gantt"?"on":""}">Гант</button>
       </div></div>
     ${body}
+    ${hiddenUndated?'<p class="muted" style="font-size:12.5px;margin:8px 0 0">Скрыто задач без дат: '+hiddenUndated+' — выбери «Всё время», чтобы увидеть, или проставь им даты.</p>':''}
     <form class="addrow taskForm" data-dir="${dirId||""}">
       <input name="title" placeholder="Новая задача" required>
       ${projOpts}
@@ -807,8 +884,10 @@ function vGantt(dirId){
   const ts=tasksSorted(dirId);
   if(!ts.length) return '<p class="muted">Задач нет — добавь первую ниже.</p>';
   const dated=ts.filter(t=>t.start&&t.due);
+  const gb=rangeBounds(getRange(dirId||"all"));
   let min,max;
-  if(dated.length){
+  if(gb){ min=mondayOf(gb[0]); max=addD(mondayOf(addD(gb[1],6)),0); if(max<=min) max=addD(min,7); }
+  else if(dated.length){
     min=mondayOf(new Date(Math.min(...dated.map(t=>+new Date(t.start+"T12:00")))));
     max=addD(mondayOf(new Date(Math.max(...dated.map(t=>+new Date(t.due+"T12:00"))))),7);
   } else { min=mondayOf(new Date()); max=addD(min,28); }
@@ -840,7 +919,7 @@ function vGantt(dirId){
 /* ================= events ================= */
 function listOf(name){ return state[name]; }
 function findItem(id){
-  for (const k of ["income","expensesFixed","expensesAdhoc","directions","projects","tasks","debts","adjustments"]){
+  for (const k of ["income","goals","expensesFixed","expensesAdhoc","directions","projects","tasks","debts","adjustments"]){
     const it=state[k].find(x=>x.id===id); if(it) return it;
   }
   return null;
@@ -863,6 +942,10 @@ document.addEventListener("change", e=>{
     touch(true); return;
   }
   if(cl.contains("inc-target")&&holder){ applyTarget(state.income.find(x=>x.id===holder.dataset.id), t.value); touch(true); return; }
+  if(cl.contains("inc-goal")&&holder){ state.income.find(x=>x.id===holder.dataset.id).goalId=t.value; touch(true); return; }
+  if(cl.contains("task-range")){ const r=getRange(t.dataset.scope); r.mode=t.value; saveRange(t.dataset.scope); render(); return; }
+  if(cl.contains("range-from")){ const r=getRange(t.dataset.scope); r.from=t.value; saveRange(t.dataset.scope); render(); return; }
+  if(cl.contains("range-to")){ const r=getRange(t.dataset.scope); r.to=t.value; saveRange(t.dataset.scope); render(); return; }
   if(cl.contains("dir-prio")){ dir(t.dataset.dir).prio=+t.value; touch(true); return; }
   if(cl.contains("dir-st")){ dir(t.dataset.dir).status=t.value; touch(true); return; }
   if(cl.contains("proj-st")&&holder){ proj(holder.dataset.id).status=t.value; touch(true); return; }
@@ -880,6 +963,9 @@ document.addEventListener("click", e=>{
 
   const vb=e.target.closest("[data-view]");
   if(vb){ dirView[vb.dataset.scope]=vb.dataset.view; localStorage.setItem("u30_view_"+vb.dataset.scope, vb.dataset.view); render(); return; }
+
+  const pf=e.target.closest(".pf");
+  if(pf){ pipeFilter=pf.dataset.pf; localStorage.setItem("u30_pipe", pipeFilter); render(); return; }
 
   const fb=e.target.closest("[data-fire]");
   if(fb){ const task=state.tasks.find(x=>x.id===fb.closest("[data-id]").dataset.id);
@@ -907,6 +993,7 @@ document.addEventListener("click", e=>{
     if(listName==="directions"){ return; }
     state[listName]=state[listName].filter(x=>x.id!==id);
     if(listName==="projects"){ state.tasks=state.tasks.filter(t=>t.projId!==id); state.income.forEach(i=>{ if(i.projId===id) i.projId=null; }); }
+    if(listName==="goals"){ state.income.forEach(i=>{ if(i.goalId===id) i.goalId="main"; }); if(pipeFilter===id) pipeFilter="all"; }
     touch(true); return;
   }
   if(e.target.id==="delDir"){
@@ -927,7 +1014,7 @@ document.addEventListener("submit", e=>{
   const fd=new FormData(f);
   if(f.id==="incForm"){
     const st=fd.get("status")||"idea";
-    const it={ id:uid(), title:fd.get("title"), amount:+fd.get("amount"), prob:st==="paid"?100:(+fd.get("prob")||0), status:st, date:fd.get("date")||(st==="paid"?today():""), dirId:"", projId:null };
+    const it={ id:uid(), title:fd.get("title"), amount:+fd.get("amount"), prob:st==="paid"?100:(+fd.get("prob")||0), status:st, date:fd.get("date")||(st==="paid"?today():""), dirId:"", projId:null, goalId:fd.get("goal")||"main" };
     applyTarget(it, fd.get("target"));
     state.income.push(it);
   }
@@ -950,6 +1037,7 @@ document.addEventListener("submit", e=>{
     state.tasks.push({ id:uid(), dirId, projId, title:fd.get("title"), prio:+fd.get("prio"), status:"todo", start:fd.get("start")||"", due:fd.get("due")||"", urgent:false });
   }
   else if(f.id==="adjForm") state.adjustments.push({ id:uid(), date:fd.get("date")||today(), balance:+fd.get("balance"), comment:fd.get("comment")||"" });
+  else if(f.id==="goalForm") state.goals.push({ id:uid(), name:fd.get("title"), target:+fd.get("amount"), deadline:fd.get("due")||"" });
   else if(f.classList.contains("payForm")){
     const debt=state.debts.find(x=>x.id===f.dataset.debt);
     debt.payments.push({ id:uid(), date:fd.get("date")||today(), amount:+fd.get("amount"), comment:fd.get("comment")||"" });
