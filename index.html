@@ -426,7 +426,7 @@ function vMain(){
       <span>Осталось: <b class="num">${fmt(tgt-paid)}</b></span>
       <span>Дней до дедлайна: <b class="num">${dl}</b></span>
       <span>Нужный темп: <b class="num">${fmt(pace)}/нед</b></span>
-      <span class="muted">бледная зона — прогноз из пайплайна</span>
+      ${wgt?'<span>В пайплайне ждёт: <b class="num">'+fmt(wgt)+'</b> <span class="muted">(бледная зона)</span></span>':''}
     </div>
     <div class="subgoals">
       <div class="subgoal life">
@@ -456,7 +456,7 @@ function vMain(){
       ${targetSel("","","").replace('class="slim "','class="slim" name="target"')}
       <input name="amount" class="amt" type="number" min="0" step="1" placeholder="$" required>
       <input name="prob" class="prob" type="number" min="0" max="100" step="5" value="50" title="Вероятность, %">
-      <select name="status" class="slim">${INC_STATUSES.filter(s=>s[0]!=="lost").map(([v,l])=>'<option value="'+v+'">'+l+'</option>').join("")}</select>
+      <select name="status" class="slim">${INC_STATUSES.filter(s=>s[0]!=="lost").map(([v,l])=>'<option value="'+v+'"'+(v==="paid"?" selected":"")+'>'+l+'</option>').join("")}</select>
       <input name="date" type="date">
       <button class="primary" type="submit">Добавить</button>
     </form>
