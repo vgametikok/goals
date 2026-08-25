@@ -221,7 +221,10 @@
       <h1>Курс на Уругвай</h1>
       <p class="sub">Цель до 31 декабря 2026: <b class="num">$20 000</b> на переезд + <b class="num">$10 000</b> на жизнь (4 мес × $2 500) = <b class="num">$30 000</b>.</p>
     </div>
-    <span class="savechip" id="savechip">Загрузка…</span>
+    <span style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <span id="authbox"></span>
+      <span class="savechip" id="savechip">Загрузка…</span>
+    </span>
   </header>
   <nav class="main" id="nav"></nav>
   <main id="app"></main>
@@ -282,6 +285,7 @@ const LS_KEY = "uruguay30_state";
 const SUPA = { url:"https://safjqsofdrxdmvnfgvjf.supabase.co", key:"sb_publishable_itzgBwUR05EtyMaSuiZruA_4Fm1Lucq" };
 
 let state=null, artifactNS=null, dirty=false, saveTimer=null, supaMode=false, supaKey=null;
+let sb=null, session=null, authMode=false;
 let selWeek=null, dirView={}, debtsHidden = localStorage.getItem("u30_eye")!=="show";
 let taskRange={}, pipeFilter = localStorage.getItem("u30_pipe")||"all";
 
@@ -1089,6 +1093,12 @@ function touch(rerender){
 }
 async function cloudSave(){
   if(!dirty) return;
+  if(!artifactNS && authMode && session){
+    chip("saving","Сохраняю…");
+    try{ await accountPush(); dirty=false; chip("","✓ "+(session.user.email||"аккаунт")); }
+    catch(e){ chip("local","Сохранено локально (нет сети?)"); dirty=false; }
+    return;
+  }
   if(!artifactNS && supaMode){
     chip("saving","Сохраняю…");
     try{ await supaPush(); dirty=false; chip("","В облаке ✓"); }
@@ -1151,6 +1161,65 @@ async function supaPush(){
 }
 function syncUrl(){ return location.origin + location.pathname + "?k=" + supaKey; }
 
+/* ---------- Аккаунт (Supabase Auth: Google / почта) ---------- */
+function loadSbLib(){
+  return new Promise((res,rej)=>{
+    if(window.supabase&&window.supabase.createClient) return res();
+    const s=document.createElement("script");
+    s.src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js";
+    s.onload=()=>res(); s.onerror=()=>rej(new Error("cdn"));
+    document.head.appendChild(s);
+  });
+}
+async function accountFetch(){
+  const {data,error}=await sb.from("user_dashboards").select("data").eq("user_id",session.user.id).maybeSingle();
+  if(error) throw error;
+  return data?migrate(data.data):null;
+}
+async function accountPush(){
+  const {error}=await sb.from("user_dashboards").upsert({ user_id:session.user.id, data:state, updated:state.updated||0, updated_at:new Date().toISOString() });
+  if(error) throw error;
+}
+async function accountLoadMerge(){
+  let remote=null; try{ remote=await accountFetch(); }catch(e){}
+  let legacy=null;
+  try{ supaKey=getSyncKey(); legacy=migrate(await supaRpc("goals_get",{p_k:supaKey})); }catch(e){}
+  const best=[remote,legacy,state].filter(Boolean).sort((a,b)=>(b.updated||0)-(a.updated||0))[0];
+  if(best&&best!==state){ state=best; render(); }
+  await accountPush();
+}
+function renderAuth(){
+  const el=document.getElementById("authbox");
+  if(!el||!sb||artifactNS){ if(el) el.innerHTML=""; return; }
+  el.innerHTML = session
+    ? '<span class="muted" style="font-size:12.5px">'+esc(session.user.email||"аккаунт")+'</span> <button class="ghost" id="logoutBtn" style="padding:4px 10px;font-size:12.5px">Выйти</button>'
+    : '<button class="ghost" id="googleBtn" style="padding:4px 10px;font-size:12.5px">Войти через Google</button><button class="ghost" id="emailBtn" style="padding:4px 10px;font-size:12.5px">По почте</button>';
+}
+async function onAuthChanged(){
+  renderAuth();
+  if(session){
+    chip("saving","Подключаю аккаунт…");
+    try{ await accountLoadMerge(); authMode=true; supaMode=false; chip("","✓ "+(session.user.email||"аккаунт")); }
+    catch(e){ chip("local","Аккаунт: ошибка, работаю по ключу"); authMode=false; }
+  } else {
+    authMode=false;
+    try{ supaKey=getSyncKey(); await supaLoadMerge(); supaMode=true; chip("","В облаке ✓ · клик = ссылка"); }
+    catch(e){ chip("local","Только локально"); }
+  }
+}
+document.addEventListener("click", async e=>{
+  if(e.target.id==="googleBtn"&&sb){
+    await sb.auth.signInWithOAuth({ provider:"google", options:{ redirectTo: location.origin+location.pathname } });
+  }
+  if(e.target.id==="emailBtn"&&sb){
+    const email=prompt("Твоя почта — пришлём ссылку для входа:");
+    if(!email) return;
+    const {error}=await sb.auth.signInWithOtp({ email, options:{ emailRedirectTo: location.origin+location.pathname } });
+    alert(error?("Не получилось: "+error.message):"Ссылка отправлена на "+email+". Открой письмо и перейди по ней.");
+  }
+  if(e.target.id==="logoutBtn"&&sb){ await sb.auth.signOut(); }
+});
+
 /* ================= boot ================= */
 document.getElementById("savechip").addEventListener("click", async ()=>{
   if(!supaMode || artifactNS) return;
@@ -1166,7 +1235,20 @@ document.getElementById("savechip").addEventListener("click", async ()=>{
     const ns=await window.claude.use("artifact");
     if(ns){ artifactNS=ns; chip("","Синхронизация ✓"); if(dirty) cloudSave(); return; }
   }
-  /* версия-сайт: облако через Supabase по секретному ключу */
+  /* версия-сайт: аккаунт (если вошёл) или облако по секретному ключу */
+  try{
+    await loadSbLib();
+    sb = window.supabase.createClient(SUPA.url, SUPA.key);
+    const r = await sb.auth.getSession();
+    session = r.data.session;
+    sb.auth.onAuthStateChange((_ev,s2)=>{
+      const was=session&&session.user.id, now=s2&&s2.user.id;
+      session=s2;
+      if(was!==now) onAuthChanged();
+    });
+  }catch(e){ sb=null; }
+  renderAuth();
+  if(sb&&session){ await onAuthChanged(); if(dirty) cloudSave(); return; }
   try{
     supaKey = getSyncKey();
     await supaLoadMerge();
