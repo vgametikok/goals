@@ -476,7 +476,8 @@ function vMain(){
   return `
   <section class="panel">
     <div class="goalrow"><div class="goal-big num">${fmt(paid)} <small>из ${fmt(tgt)}</small></div>
-    <div class="muted num">${pct.toFixed(1)}%</div></div>
+    <span style="display:flex;gap:10px;align-items:center"><span class="muted num">${pct.toFixed(1)}%</span>
+      <button class="ghost" id="addGoalBtn" title="Добавить денежную цель" style="padding:4px 12px">+ цель</button></span></div>
     <div class="bar"><i class="fc" style="width:${Math.min(100,(paid+wgt)/tgt*100)}%"></i><i style="width:${pct}%"></i></div>
     <div class="goalmeta">
       <span>Осталось: <b class="num">${fmt(tgt-paid)}</b></span>
@@ -495,21 +496,17 @@ function vMain(){
         <div class="bar"><i style="width:${Math.min(100,moveDone/move*100)}%"></i></div>
         <span class="num muted">${fmt(moveDone)} / ${fmt(move)}</span>
       </div>
+      ${state.goals.map(g=>{
+        const p=paidTotalGoal(g.id), w=weightedGoal(g.id), gpct=Math.min(100,g.target?p/g.target*100:0);
+        return `<div class="subgoal goalx" data-id="${g.id}" style="border-top:1px dashed var(--line);padding-top:8px">
+          <span style="display:flex;gap:4px;align-items:center"><input class="inline" data-f="name" value="${esc(g.name)}" style="font-weight:500;padding:2px 4px">
+            <input class="amt num" data-f="target" type="number" value="${+g.target}" title="Сумма цели" style="width:80px"></span>
+          <div class="bar"><i class="fc" style="width:${Math.min(100,g.target?(p+w)/g.target*100:0)}%"></i><i style="width:${gpct}%;background:var(--accent)"></i></div>
+          <span class="num muted" style="display:flex;gap:6px;align-items:center">${fmt(p)} / ${fmt(g.target)}${w?' <span title="в пайплайне">(+'+fmt(w)+')</span>':''}
+            <button class="x" data-del="goals" title="Удалить цель">×</button></span>
+        </div>`;}).join("")}
     </div>
-  </section>
-  <section class="panel">
-    <div class="phead"><h2>Денежные цели</h2></div>
-    ${state.goals.map(g=>{
-      const p=paidTotalGoal(g.id), w=weightedGoal(g.id), gpct=Math.min(100,g.target?p/g.target*100:0);
-      return `<div class="debt" data-id="${g.id}" style="background:var(--panel)">
-        <div class="head"><input class="inline" data-f="name" value="${esc(g.name)}" style="max-width:280px;font-weight:600">
-          <span class="num">${fmt(p)} / <input class="amt num" data-f="target" type="number" value="${+g.target}">
-          <input class="inline num" data-f="deadline" type="date" value="${g.deadline||""}" style="width:130px" title="Дедлайн"></span>
-          <button class="x" data-del="goals">×</button></div>
-        <div class="bar" style="height:12px"><i class="fc" style="width:${Math.min(100,g.target?(p+w)/g.target*100:0)}%"></i><i style="width:${gpct}%"></i></div>
-        <div class="muted num" style="font-size:13px">Осталось ${fmt(Math.max(0,g.target-p))}${w?" · в пайплайне "+fmt(w):""}</div>
-      </div>`;}).join("")||'<p class="muted">Дополнительных целей нет — Уругвай главная. Добавь, например, «Новый ПК $1 500».</p>'}
-    <form class="addrow" id="goalForm">
+    <form class="addrow" id="goalForm" style="display:none">
       <input name="title" placeholder="Название цели" required>
       <input name="amount" class="amt" type="number" min="1" step="1" placeholder="$" required>
       <input name="due" type="date" title="Дедлайн (необязательно)">
@@ -968,6 +965,13 @@ document.addEventListener("click", e=>{
   const vb=e.target.closest("[data-view]");
   if(vb){ dirView[vb.dataset.scope]=vb.dataset.view; localStorage.setItem("u30_view_"+vb.dataset.scope, vb.dataset.view); render(); return; }
 
+  if(e.target.id==="addGoalBtn"){
+    const gform=document.getElementById("goalForm");
+    const show=gform.style.display==="none";
+    gform.style.display=show?"flex":"none";
+    if(show) gform.title.focus();
+    return;
+  }
   const pf=e.target.closest(".pf");
   if(pf){ pipeFilter=pf.dataset.pf; localStorage.setItem("u30_pipe", pipeFilter); render(); return; }
 
