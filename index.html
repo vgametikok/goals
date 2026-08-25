@@ -166,24 +166,43 @@
   .legend{display:flex; gap:14px; font-size:12.5px; color:var(--ink2); margin-top:12px; flex-wrap:wrap; align-items:center}
   .legend i{display:inline-block; width:14px; height:14px; border-radius:4px; vertical-align:-2px; margin-right:5px; border:1px solid var(--line)}
 
-  /* kanban / gantt */
+  /* tasks: list / kanban / gantt */
   .viewtog{display:flex; gap:6px}
   .viewtog button.on{background:var(--accent); color:var(--accent-ink)}
   .kanban{display:grid; grid-template-columns:repeat(3,1fr); gap:12px}
   @media (max-width:760px){.kanban{grid-template-columns:1fr}}
-  .kcol{background:var(--panel2); border:1px solid var(--line); border-radius:10px; padding:10px}
+  .kcol{background:var(--panel2); border:1px solid var(--line); border-radius:10px; padding:10px; min-height:90px}
   .kcol>h3{font-size:12px; text-transform:uppercase; letter-spacing:.07em; color:var(--ink3); margin-bottom:10px}
-  .kcard{background:var(--panel); border:1px solid var(--line); border-left:4px solid var(--line); border-radius:8px; padding:8px 10px; margin-bottom:8px}
-  .kcard.p3{border-left-color:var(--bad)} .kcard.p2{border-left-color:var(--gold)}
+  .kcol.dropover{outline:2px dashed var(--accent); outline-offset:-2px}
+  .kcard{border:none; border-left:4px solid var(--line); border-radius:8px; padding:9px 11px; margin-bottom:8px; cursor:grab; box-shadow:var(--shadow)}
+  .kcard:active{cursor:grabbing}
+  .kcard.dragging{opacity:.45}
+  .kcard.p3{background:color-mix(in srgb,var(--bad) 22%,var(--panel)); border-left-color:var(--bad)}
+  .kcard.p2{background:color-mix(in srgb,var(--warn) 26%,var(--panel)); border-left-color:var(--warn)}
+  .kcard.p1{background:color-mix(in srgb,var(--info) 22%,var(--panel)); border-left-color:var(--info)}
   .kcard .ctl{display:flex; gap:4px; align-items:center; margin-top:6px; flex-wrap:wrap}
-  .kcard .tag{font-size:11.5px; color:var(--ink3)}
-  .gantt .grow{display:grid; grid-template-columns:200px 108px 108px 1fr; gap:8px; align-items:center; padding:6px 0; border-bottom:1px solid var(--line)}
-  .gantt .grow:last-child{border-bottom:none}
-  .gtrack{height:16px; background:var(--panel2); border-radius:6px; position:relative; min-width:120px}
-  .gbar{position:absolute; top:2px; bottom:2px; border-radius:5px; background:var(--accent); min-width:8px}
-  .gbar.p3{background:var(--bad)} .gbar.p2{background:var(--gold)}
-  .gscale{display:flex; justify-content:space-between; font-size:11px; color:var(--ink3); margin:4px 0 8px}
-  @media (max-width:760px){.gantt .grow{grid-template-columns:1fr 1fr; }.gantt .gtrack{grid-column:1/-1}}
+  .kcard .tag{font-size:11.5px; color:var(--ink2); margin-top:2px}
+  .kcard input.inline{font-weight:500}
+  .tdone{text-decoration:line-through; opacity:.55}
+  /* gantt */
+  .gantt{--gl:230px; overflow-x:auto}
+  .gantt .gin{min-width:640px}
+  .gaxis{position:relative; height:38px; margin-left:var(--gl)}
+  .gaxis span{position:absolute; bottom:0; transform:rotate(-52deg); transform-origin:left bottom; font-size:10px; color:var(--ink3); white-space:nowrap}
+  .grow2{display:grid; grid-template-columns:var(--gl) 1fr; align-items:center; border-top:1px solid var(--line); padding:5px 0}
+  .grow2 .ttl{padding-right:10px; font-size:13.5px; min-width:0}
+  .grow2 .ttl .tname{overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:block}
+  .grow2 .ttl .dts{display:flex; gap:4px; margin-top:3px}
+  .grow2 .ttl .dts input{font-size:11px; padding:2px 4px; width:112px}
+  .gtrackwrap{position:relative; height:24px}
+  .ggrid{position:absolute; inset:0; pointer-events:none}
+  .gline{position:absolute; top:0; bottom:0; width:1px; background:var(--line)}
+  .gline.month{background:var(--ink3); opacity:.6}
+  .gtoday{position:absolute; top:0; bottom:0; width:2px; background:var(--accent)}
+  .gbar2{position:absolute; top:4px; height:16px; border-radius:4px; min-width:6px; box-shadow:var(--shadow)}
+  .gbar2.p3{background:var(--bad)} .gbar2.p2{background:var(--warn)} .gbar2.p1{background:var(--info)}
+  .gbar2.done{opacity:.4}
+  @media (max-width:760px){.gantt{--gl:150px}}
   .backlink{display:inline-block; margin-bottom:12px; color:var(--ink2)}
   .dirhead{display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:14px}
   .dirhead input.dname{font-family:"Oswald",sans-serif; font-size:24px; font-weight:600; text-transform:uppercase; flex:1; min-width:220px}
@@ -281,6 +300,7 @@ function migrate(s){
     for (const k of ["directions","projects","tasks","income","expensesFixed","expensesAdhoc","debts","adjustments"])
       if (!Array.isArray(s[k])) s[k]=[];
     if (!s.goal.moveNeed){ s.goal.moveNeed=20000; s.goal.lifeNeed=(s.goal.target||30000)-20000; }
+    s.projects.forEach(p=>{ if(!p.prio) p.prio=2; });
     return s;
   }
   const out = clone(DEFAULT_STATE);
@@ -505,7 +525,8 @@ function vMain(){
       <input name="title" placeholder="Новое направление" required>
       <button class="primary" type="submit">Добавить направление</button>
     </form>
-  </section>`;
+  </section>
+  ${vTasksSection(null)}`;
 }
 function cardDir(d){
   const [wa,wb]=curWeek(), [ma,mb]=curMonth();
@@ -666,7 +687,6 @@ function vWeeks(){
 /* ---------- direction page ---------- */
 function vDir(d){
   const [wa,wb]=curWeek(), [ma,mb]=curMonth();
-  const view = dirView[d.id] || localStorage.getItem("u30_view_"+d.id) || "kanban";
   const months=[];
   { let m=new Date(state.goal.start+"T12:00"); m.setDate(1);
     const end=new Date(state.goal.deadline+"T12:00");
@@ -703,8 +723,9 @@ function vDir(d){
   <section class="panel">
     <h2>Проекты / клиенты</h2>
     <div class="tscroll"><table><tbody>
-      ${state.projects.filter(p=>p.dirId===d.id).map(p=>`<tr data-id="${p.id}">
+      ${state.projects.filter(p=>p.dirId===d.id).sort((a,b)=>(b.prio||2)-(a.prio||2)).map(p=>`<tr data-id="${p.id}">
         <td><input class="inline" data-f="name" value="${esc(p.name)}"></td>
+        <td>${prioSel("pj-prio",p.prio||2)}</td>
         <td>${sel("proj-st",p.status,WORK_STATUSES)}</td>
         <td class="r num muted">всего ${fmt(state.income.filter(i=>i.projId===p.id&&i.status==="paid").reduce((s,i)=>s+ +i.amount,0))}</td>
         <td><button class="x" data-del="projects">×</button></td></tr>`).join("")||'<tr><td class="muted">Проектов пока нет.</td></tr>'}
@@ -714,17 +735,38 @@ function vDir(d){
       <button class="primary" type="submit">Добавить</button>
     </form>
   </section>
-  <section class="panel">
-    <div class="phead"><h2>Задачи</h2>
+  ${vTasksSection(d.id)}`;
+}
+function tasksSorted(dirId){
+  return state.tasks.filter(t=>!dirId||t.dirId===dirId)
+    .sort((a,b)=>((b.urgent?1:0)-(a.urgent?1:0)) || (b.prio-a.prio) || String(a.due||"9999").localeCompare(String(b.due||"9999")));
+}
+function taskTag(t, global){
+  const d=dir(t.dirId), p=t.projId?proj(t.projId):null;
+  const parts=[]; if(global&&d) parts.push(d.name); if(p) parts.push(p.name);
+  return parts.length?esc(parts.join(" / ")):"";
+}
+function fireBtn(t){ return '<button class="x" data-fire title="Горящая задача" style="font-size:14px;padding:2px 4px;'+(t.urgent?'':'filter:grayscale(1);opacity:.4')+'">🔥</button>'; }
+const PRIO_OPTS=[["3","высокий"],["2","средний"],["1","низкий"]];
+function vTasksSection(dirId){
+  const scope=dirId||"all";
+  const stored=dirView[scope]||localStorage.getItem("u30_view_"+scope)||"list";
+  const view=["list","kanban","gantt"].includes(stored)?stored:"list";
+  const body= view==="kanban"?vKanban(dirId): view==="gantt"?vGantt(dirId): vList(dirId);
+  const projOpts = dirId
+    ? '<select name="proj" class="slim"><option value="">без проекта</option>'+state.projects.filter(p=>p.dirId===dirId).map(p=>'<option value="'+p.id+'">'+esc(p.name)+'</option>').join("")+'</select>'
+    : targetSel("","","").replace('class="slim "','class="slim" name="target"');
+  return `<section class="panel">
+    <div class="phead"><h2>${dirId?"Задачи":"Все задачи"}</h2>
       <div class="viewtog">
-        <button data-view="kanban" data-dir="${d.id}" class="${view==="kanban"?"on":""}">Канбан</button>
-        <button data-view="gantt" data-dir="${d.id}" class="${view==="gantt"?"on":""}">Гант</button>
+        <button data-view="list" data-scope="${scope}" class="${view==="list"?"on":""}">Список</button>
+        <button data-view="kanban" data-scope="${scope}" class="${view==="kanban"?"on":""}">Канбан</button>
+        <button data-view="gantt" data-scope="${scope}" class="${view==="gantt"?"on":""}">Гант</button>
       </div></div>
-    ${view==="gantt"?vGantt(d):vKanban(d)}
-    <form class="addrow" id="taskForm" data-dir="${d.id}">
+    ${body}
+    <form class="addrow taskForm" data-dir="${dirId||""}">
       <input name="title" placeholder="Новая задача" required>
-      <select name="proj" class="slim"><option value="">без проекта</option>
-        ${state.projects.filter(p=>p.dirId===d.id).map(p=>'<option value="'+p.id+'">'+esc(p.name)+'</option>').join("")}</select>
+      ${projOpts}
       <select name="prio" class="slim"><option value="3">высокий</option><option value="2" selected>средний</option><option value="1">низкий</option></select>
       <input name="start" type="date" title="Начало">
       <input name="due" type="date" title="Дедлайн">
@@ -732,50 +774,67 @@ function vDir(d){
     </form>
   </section>`;
 }
-function vKanban(d){
-  const ts=state.tasks.filter(t=>t.dirId===d.id);
+function vList(dirId){
+  const ts=tasksSorted(dirId);
+  if(!ts.length) return '<p class="muted">Задач нет — добавь первую ниже.</p>';
+  const rows=ts.map(t=>`<tr data-id="${t.id}"${t.urgent?' style="background:color-mix(in srgb,var(--bad) 8%,transparent)"':''}>
+    <td style="width:34px">${fireBtn(t)}</td>
+    <td style="min-width:170px"><input class="inline ${t.status==="done"?"tdone":""}" data-f="title" value="${esc(t.title)}"></td>
+    ${dirId?"":'<td class="muted" style="font-size:12.5px">'+taskTag(t,true)+'</td>'}
+    <td>${sel("task-prio",String(t.prio),PRIO_OPTS)}</td>
+    <td>${sel("task-st",t.status,TASK_COLS)}</td>
+    <td><input class="num" data-f="start" type="date" value="${t.start||""}" style="width:120px"></td>
+    <td><input class="num" data-f="due" type="date" value="${t.due||""}" style="width:120px"></td>
+    <td><button class="x" data-del="tasks">×</button></td></tr>`).join("");
+  return '<div class="tscroll"><table><thead><tr><th>🔥</th><th>Задача</th>'+(dirId?"":"<th>Направление / проект</th>")+
+    '<th>Приоритет</th><th>Статус</th><th>Начало</th><th>Дедлайн</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div>';
+}
+function vKanban(dirId){
+  const ts=tasksSorted(dirId);
   return '<div class="kanban">'+TASK_COLS.map(([st,label],ci)=>{
-    const cards=ts.filter(t=>t.status===st).sort((a,b)=>b.prio-a.prio).map(t=>{
-      const p=t.projId?proj(t.projId):null;
-      return `<div class="kcard p${t.prio}" data-id="${t.id}">
-        <input class="inline" data-f="title" value="${esc(t.title)}">
-        ${p?'<div class="tag">'+esc(p.name)+'</div>':''}
-        <div class="ctl">
-          ${sel("task-prio",String(t.prio),[["3","высокий"],["2","средний"],["1","низкий"]])}
-          ${ci>0?'<button class="mv" data-mv="-1" title="Назад">◀</button>':''}
-          ${ci<2?'<button class="mv" data-mv="1" title="Вперёд">▶</button>':''}
-          <button class="x" data-del="tasks">×</button>
-        </div></div>`;
-    }).join("");
-    return '<div class="kcol"><h3>'+label+'</h3>'+(cards||'<p class="muted" style="font-size:13px">—</p>')+'</div>';
+    const items=ts.filter(t=>t.status===st);
+    const cards=items.map(t=>`<div class="kcard p${t.prio}" draggable="true" data-id="${t.id}">
+      <input class="inline ${st==="done"?"tdone":""}" data-f="title" value="${esc(t.title)}">
+      ${taskTag(t,!dirId)?'<div class="tag">'+taskTag(t,!dirId)+'</div>':''}
+      <div class="ctl">${fireBtn(t)}${sel("task-prio",String(t.prio),PRIO_OPTS)}
+        ${ci>0?'<button class="mv" data-mv="-1" title="Назад">◀</button>':''}
+        ${ci<2?'<button class="mv" data-mv="1" title="Вперёд">▶</button>':''}
+        <button class="x" data-del="tasks">×</button></div></div>`).join("");
+    return '<div class="kcol" data-col="'+st+'"><h3>'+label+' · '+items.length+'</h3>'+(cards||'<p class="muted" style="font-size:13px">перетащи сюда</p>')+'</div>';
   }).join("")+'</div>';
 }
-function vGantt(d){
-  const ts=state.tasks.filter(t=>t.dirId===d.id);
+function vGantt(dirId){
+  const ts=tasksSorted(dirId);
+  if(!ts.length) return '<p class="muted">Задач нет — добавь первую ниже.</p>';
   const dated=ts.filter(t=>t.start&&t.due);
-  let scale="";
-  let min=null,max=null;
+  let min,max;
   if(dated.length){
-    min=new Date(Math.min(...dated.map(t=>+new Date(t.start))));
-    max=new Date(Math.max(...dated.map(t=>+new Date(t.due))));
-    max=addD(max,1);
-    scale='<div class="gscale"><span>'+fmtD(min)+'</span><span>'+fmtD(addD(max,-1))+'</span></div>';
+    min=mondayOf(new Date(Math.min(...dated.map(t=>+new Date(t.start+"T12:00")))));
+    max=addD(mondayOf(new Date(Math.max(...dated.map(t=>+new Date(t.due+"T12:00"))))),7);
+  } else { min=mondayOf(new Date()); max=addD(min,28); }
+  if((max-min)/6048e5<4) max=addD(min,28);
+  const total=max-min, px=d=>((d-min)/total*100);
+  let lines="",labels="";
+  for(let d=new Date(min); d<=max; d=addD(d,7)){
+    const x=px(d), isM=d.getDate()<=7;
+    lines+='<i class="gline'+(isM?" month":"")+'" style="left:'+x+'%"></i>';
+    labels+='<span style="left:'+x+'%">'+fmtD(d)+'</span>';
   }
-  const row=t=>{
-    let bar='<span class="muted" style="font-size:12px">укажи даты →</span>';
-    if(t.start&&t.due&&min){
-      const total=max-min||1;
-      const l=Math.max(0,(new Date(t.start)-min)/total*100);
-      const w=Math.max(2,(addD(new Date(t.due),1)-new Date(t.start))/total*100);
-      bar='<div class="gtrack"><div class="gbar p'+t.prio+'" style="left:'+l+'%;width:'+Math.min(w,100-l)+'%"></div></div>';
-    } else bar='<div class="gtrack"></div>';
-    return `<div class="grow" data-id="${t.id}">
-      <input class="inline" data-f="title" value="${esc(t.title)}">
-      <input class="num" data-f="start" type="date" value="${t.start||""}">
-      <input class="num" data-f="due" type="date" value="${t.due||""}">
-      ${bar}</div>`;
-  };
-  return '<div class="gantt">'+scale+(ts.length?ts.map(row).join(""):'<p class="muted">Задач нет.</p>')+'</div>';
+  const now=new Date();
+  const today=(now>=min&&now<=max)?'<i class="gtoday" style="left:'+px(now)+'%"></i>':'';
+  const rows=ts.map(t=>{
+    let bar='';
+    if(t.start&&t.due){
+      const s=new Date(t.start+"T12:00"), e=addD(new Date(t.due+"T12:00"),1);
+      const l=Math.max(0,Math.min(99,px(s))), w=Math.max(1.2,Math.min(px(e),100)-l);
+      bar='<div class="gbar2 p'+t.prio+(t.status==="done"?" done":"")+'" style="left:'+l+'%;width:'+w+'%" title="'+esc(t.title)+'"></div>';
+    }
+    return `<div class="grow2" data-id="${t.id}">
+      <div class="ttl"><span class="tname ${t.status==="done"?"tdone":""}">${t.urgent?"🔥 ":""}${esc(t.title)}</span>
+        <div class="dts"><input class="num" data-f="start" type="date" value="${t.start||""}"><input class="num" data-f="due" type="date" value="${t.due||""}"></div></div>
+      <div class="gtrackwrap"><div class="ggrid">${lines}${today}</div>${bar}</div></div>`;
+  }).join("");
+  return '<div class="gantt"><div class="gin"><div class="gaxis">'+labels+'</div>'+rows+'</div></div>';
 }
 
 /* ================= events ================= */
@@ -807,7 +866,9 @@ document.addEventListener("change", e=>{
   if(cl.contains("dir-prio")){ dir(t.dataset.dir).prio=+t.value; touch(true); return; }
   if(cl.contains("dir-st")){ dir(t.dataset.dir).status=t.value; touch(true); return; }
   if(cl.contains("proj-st")&&holder){ proj(holder.dataset.id).status=t.value; touch(true); return; }
+  if(cl.contains("pj-prio")&&holder){ proj(holder.dataset.id).prio=+t.value; touch(true); return; }
   if(cl.contains("task-prio")&&holder){ state.tasks.find(x=>x.id===holder.dataset.id).prio=+t.value; touch(true); return; }
+  if(cl.contains("task-st")&&holder){ state.tasks.find(x=>x.id===holder.dataset.id).status=t.value; touch(true); return; }
   if(t.dataset.f){ touch(true); return; } // blur после inline-правки — перерисовать производные
 });
 document.addEventListener("click", e=>{
@@ -818,7 +879,11 @@ document.addEventListener("click", e=>{
   if(wk){ selWeek = selWeek===wk.dataset.wk?null:wk.dataset.wk; render(); return; }
 
   const vb=e.target.closest("[data-view]");
-  if(vb){ dirView[vb.dataset.dir]=vb.dataset.view; localStorage.setItem("u30_view_"+vb.dataset.dir, vb.dataset.view); render(); return; }
+  if(vb){ dirView[vb.dataset.scope]=vb.dataset.view; localStorage.setItem("u30_view_"+vb.dataset.scope, vb.dataset.view); render(); return; }
+
+  const fb=e.target.closest("[data-fire]");
+  if(fb){ const task=state.tasks.find(x=>x.id===fb.closest("[data-id]").dataset.id);
+    if(task){ task.urgent=!task.urgent; touch(true); } return; }
 
   if(e.target.id==="eyeBtn"){ debtsHidden=!debtsHidden; localStorage.setItem("u30_eye",debtsHidden?"hide":"show"); render(); return; }
 
@@ -875,8 +940,15 @@ document.addEventListener("submit", e=>{
       : { id:uid(), title:fd.get("title"), type:"lump", total:amt, due:fd.get("due")||"", payments:[] });
   }
   else if(f.id==="dirForm") state.directions.push({ id:uid(), name:fd.get("title"), prio:2, status:"active" });
-  else if(f.id==="projForm") state.projects.push({ id:uid(), dirId:f.dataset.dir, name:fd.get("title"), status:"active" });
-  else if(f.id==="taskForm") state.tasks.push({ id:uid(), dirId:f.dataset.dir, projId:fd.get("proj")||null, title:fd.get("title"), prio:+fd.get("prio"), status:"todo", start:fd.get("start")||"", due:fd.get("due")||"" });
+  else if(f.id==="projForm") state.projects.push({ id:uid(), dirId:f.dataset.dir, name:fd.get("title"), status:"active", prio:2 });
+  else if(f.classList.contains("taskForm")){
+    let dirId=f.dataset.dir||"", projId=null;
+    if(dirId) projId=fd.get("proj")||null;
+    else { const tg=fd.get("target")||"";
+      if(tg.startsWith("p:")){ const p=proj(tg.slice(2)); projId=p.id; dirId=p.dirId; }
+      else if(tg.startsWith("d:")) dirId=tg.slice(2); }
+    state.tasks.push({ id:uid(), dirId, projId, title:fd.get("title"), prio:+fd.get("prio"), status:"todo", start:fd.get("start")||"", due:fd.get("due")||"", urgent:false });
+  }
   else if(f.id==="adjForm") state.adjustments.push({ id:uid(), date:fd.get("date")||today(), balance:+fd.get("balance"), comment:fd.get("comment")||"" });
   else if(f.classList.contains("payForm")){
     const debt=state.debts.find(x=>x.id===f.dataset.debt);
@@ -887,6 +959,36 @@ document.addEventListener("submit", e=>{
   touch(true);
 });
 window.addEventListener("hashchange", render);
+
+/* drag-and-drop канбана */
+let dragTaskId=null;
+document.addEventListener("dragstart", e=>{
+  const c=e.target.closest&&e.target.closest(".kcard");
+  if(c){ dragTaskId=c.dataset.id; c.classList.add("dragging"); e.dataTransfer.effectAllowed="move"; try{e.dataTransfer.setData("text/plain",c.dataset.id);}catch(x){} }
+});
+document.addEventListener("dragend", e=>{
+  const c=e.target.closest&&e.target.closest(".kcard");
+  if(c) c.classList.remove("dragging");
+  document.querySelectorAll(".kcol.dropover").forEach(k=>k.classList.remove("dropover"));
+});
+document.addEventListener("dragover", e=>{
+  const col=e.target.closest&&e.target.closest(".kcol");
+  if(col&&dragTaskId){ e.preventDefault(); e.dataTransfer.dropEffect="move"; col.classList.add("dropover"); }
+});
+document.addEventListener("dragleave", e=>{
+  const col=e.target.closest&&e.target.closest(".kcol");
+  if(col) col.classList.remove("dropover");
+});
+document.addEventListener("drop", e=>{
+  const col=e.target.closest&&e.target.closest(".kcol");
+  if(col&&dragTaskId){
+    e.preventDefault();
+    const task=state.tasks.find(x=>x.id===dragTaskId);
+    if(task && task.status!==col.dataset.col){ task.status=col.dataset.col; touch(true); }
+    else document.querySelectorAll(".kcol.dropover").forEach(k=>k.classList.remove("dropover"));
+    dragTaskId=null;
+  }
+});
 
 /* ================= saving ================= */
 function chip(cls,text){ const c=document.getElementById("savechip"); c.className="savechip "+cls; c.textContent=text; }
